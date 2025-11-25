@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Services - SentraOS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .navbar { background: white; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .cloud-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.08);
+            transition: transform 0.2s;
+        }
+        .cloud-card:hover { transform: translateY(-3px); box-shadow: 0 4px 15px rgba(0,0,0,.12); }
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        .stat-box h3 { font-size: 36px; margin: 10px 0; font-weight: 700; }
+        .stat-box p { margin: 0; opacity: 0.9; font-size: 14px; }
+        .container-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #10b981;
+        }
+        .container-item.stopped { border-left-color: #ef4444; }
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-running { background: #d1fae5; color: #065f46; }
+        .status-stopped { background: #fee2e2; color: #991b1b; }
+        .service-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .service-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 18px;
+            color: white;
+        }
+        .cost-box {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+        }
+        .resource-bar {
+            background: #e5e7eb;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .resource-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s;
+        }
+        .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f3f4f6; }
+        .info-row:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-4">
+            <span class="navbar-brand">
+                <i class="fas fa-cloud text-primary"></i>
+                <strong>SentraOS</strong> - Cloud Services
+            </span>
+            <div>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary btn-sm me-2">
+                    <i class="fas fa-arrow-left"></i> Dashboard
+                </a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 py-4">
+        <!-- Statistics Row -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <i class="fas fa-server fa-2x"></i>
+                    <h3 id="totalContainers">0</h3>
+                    <p>Total Containers</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #10b981, #059669);">
+                    <i class="fas fa-play-circle fa-2x"></i>
+                    <h3 id="runningContainers">0</h3>
+                    <p>Running</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                    <i class="fas fa-network-wired fa-2x"></i>
+                    <h3 id="activeServices">0</h3>
+                    <p>Active Services</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                    <i class="fas fa-dollar-sign fa-2x"></i>
+                    <h3 id="monthlyCost">$0</h3>
+                    <p>Est. Monthly Cost</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Infrastructure Info -->
+            <div class="col-md-4">
+                <div class="cloud-card">
+                    <h5><i class="fas fa-info-circle text-primary"></i> Infrastructure</h5>
+                    <div id="infrastructureInfo">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cloud-card">
+                    <h5><i class="fas fa-chart-line text-success"></i> Resource Usage</h5>
+                    <div id="resourceUsage"></div>
+                </div>
+
+                <div class="cloud-card">
+                    <h5><i class="fas fa-receipt text-warning"></i> Cost Estimation</h5>
+                    <div id="costEstimation"></div>
+                </div>
+            </div>
+
+            <!-- Containers -->
+            <div class="col-md-8">
+                <div class="cloud-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="fas fa-docker text-primary"></i> Docker Containers</h5>
+                        <button class="btn btn-sm btn-primary" onclick="loadData()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div id="containersData"></div>
+                </div>
+
+                <div class="cloud-card">
+                    <h5><i class="fas fa-cogs text-primary"></i> Active Services</h5>
+                    <div id="servicesData"></div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="cloud-card">
+                            <h5><i class="fas fa-hdd text-primary"></i> Docker Images</h5>
+                            <div id="imagesData" style="max-height: 300px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="cloud-card">
+                            <h5><i class="fas fa-network-wired text-primary"></i> Docker Networks</h5>
+                            <div id="networksData" style="max-height: 300px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        async function loadData() {
+            await Promise.all([
+                loadOverview(),
+                loadContainers(),
+                loadImages(),
+                loadNetworks(),
+                loadCosts()
+            ]);
+        }
+
+        async function loadOverview() {
+            try {
+                const response = await fetch('/api/cloud/overview');
+                const data = await response.json();
+                
+                displayInfrastructure(data.infrastructure);
+                displayServices(data.services);
+                displayResources(data.resources);
+            } catch (error) {
+                console.error('Error loading overview:', error);
+            }
+        }
+
+        function displayInfrastructure(infra) {
+            const html = `
+                <div class="info-row">
+                    <span><strong>Provider:</strong></span>
+                    <span>${infra.provider}</span>
+                </div>
+                <div class="info-row">
+                    <span><strong>Region:</strong></span>
+                    <span>${infra.region}</span>
+                </div>
+                <div class="info-row">
+                    <span><strong>Instance Type:</strong></span>
+                    <span>${infra.instance_type}</span>
+                </div>
+                <div class="info-row">
+                    <span><strong>Status:</strong></span>
+                    <span class="status-badge status-running">${infra.status}</span>
+                </div>
+                <div class="info-row">
+                    <span><strong>Health:</strong></span>
+                    <span class="status-badge ${infra.health === 'healthy' ? 'status-running' : 'status-stopped'}">${infra.health}</span>
+                </div>
+                <div class="info-row">
+                    <span><strong>Uptime:</strong></span>
+                    <span>${formatUptime(infra.uptime_seconds)}</span>
+                </div>
+            `;
+            document.getElementById('infrastructureInfo').innerHTML = html;
+        }
+
+        function displayServices(services) {
+            const container = document.getElementById('servicesData');
+            const count = document.getElementById('activeServices');
+            
+            count.textContent = services.length;
+            
+            if (services.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center">No active services detected</p>';
+                return;
+            }
+            
+            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+            
+            container.innerHTML = services.map((service, i) => `
+                <div class="service-item">
+                    <div class="service-icon" style="background: ${colors[i % colors.length]}">
+                        <i class="fas fa-server"></i>
+                    </div>
+                    <div style="flex: 1;">
+                        <strong>${service.name}</strong>
+                        <div class="text-muted small">Port: ${service.port} | ${service.protocol.toUpperCase()}</div>
+                    </div>
+                    <span class="status-badge status-running">${service.status}</span>
+                </div>
+            `).join('');
+        }
+
+        function displayResources(resources) {
+            const html = `
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>CPU Usage</span>
+                        <span><strong>${resources.cpu.overall_percent}%</strong></span>
+                    </div>
+                    <div class="resource-bar">
+                        <div class="resource-bar-fill" style="width: ${resources.cpu.overall_percent}%; background: linear-gradient(90deg, #3b82f6, #2563eb);"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Memory</span>
+                        <span><strong>${resources.memory.used_gb} GB / ${resources.memory.total_gb} GB</strong></span>
+                    </div>
+                    <div class="resource-bar">
+                        <div class="resource-bar-fill" style="width: ${resources.memory.percent}%; background: linear-gradient(90deg, #10b981, #059669);"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Disk</span>
+                        <span><strong>${resources.disk.used_gb} GB / ${resources.disk.total_gb} GB</strong></span>
+                    </div>
+                    <div class="resource-bar">
+                        <div class="resource-bar-fill" style="width: ${resources.disk.percent}%; background: linear-gradient(90deg, #f59e0b, #d97706);"></div>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <span>Network Sent:</span>
+                    <span><strong>${resources.network.bytes_sent_mb} MB</strong></span>
+                </div>
+                <div class="info-row">
+                    <span>Network Received:</span>
+                    <span><strong>${resources.network.bytes_recv_mb} MB</strong></span>
+                </div>
+            `;
+            document.getElementById('resourceUsage').innerHTML = html;
+        }
+
+        async function loadContainers() {
+            try {
+                const response = await fetch('/api/cloud/containers');
+                const data = await response.json();
+                
+                document.getElementById('totalContainers').textContent = data.total;
+                document.getElementById('runningContainers').textContent = data.running;
+                
+                const container = document.getElementById('containersData');
+                
+                if (!data.available) {
+                    container.innerHTML = `
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> 
+                            Docker is not available. Install Docker to see container information.
+                        </div>
+                    `;
+                    return;
+                }
+                
+                if (data.containers.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center">No containers found</p>';
+                    return;
+                }
+                
+                container.innerHTML = data.containers.map(c => `
+                    <div class="container-item ${c.status !== 'running' ? 'stopped' : ''}">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <strong>${c.name}</strong>
+                                <span class="status-badge ${c.status === 'running' ? 'status-running' : 'status-stopped'} ms-2">
+                                    ${c.status}
+                                </span>
+                            </div>
+                            <small class="text-muted">${c.id}</small>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <small><i class="fas fa-box"></i> Image: <strong>${c.image}</strong></small>
+                            </div>
+                            <div class="col-md-6">
+                                <small><i class="fas fa-microchip"></i> CPU: <strong>${c.cpu_percent}%</strong></small>
+                            </div>
+                        </div>
+                        <div class="row mt-1">
+                            <div class="col-md-6">
+                                <small><i class="fas fa-memory"></i> Memory: <strong>${c.memory_usage}</strong></small>
+                            </div>
+                            <div class="col-md-6">
+                                <small><i class="fas fa-network-wired"></i> Network: <strong>${c.network_io}</strong></small>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading containers:', error);
+            }
+        }
+
+        async function loadImages() {
+            try {
+                const response = await fetch('/api/cloud/images');
+                const images = await response.json();
+                
+                const container = document.getElementById('imagesData');
+                
+                if (images.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center small">No images found</p>';
+                    return;
+                }
+                
+                container.innerHTML = images.map(img => `
+                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <div>
+                            <strong>${img.repository}</strong>
+                            <div class="text-muted small">${img.tag} • ${img.id}</div>
+                        </div>
+                        <span class="badge bg-secondary">${img.size}</span>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading images:', error);
+            }
+        }
+
+        async function loadNetworks() {
+            try {
+                const response = await fetch('/api/cloud/networks');
+                const networks = await response.json();
+                
+                const container = document.getElementById('networksData');
+                
+                if (networks.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center small">No networks found</p>';
+                    return;
+                }
+                
+                container.innerHTML = networks.map(net => `
+                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <div>
+                            <strong>${net.name}</strong>
+                            <div class="text-muted small">${net.id} • ${net.driver}</div>
+                        </div>
+                        <span class="badge bg-primary">${net.scope}</span>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading networks:', error);
+            }
+        }
+
+        async function loadCosts() {
+            try {
+                const response = await fetch('/api/cloud/cost');
+                const data = await response.json();
+                
+                document.getElementById('monthlyCost').textContent = 
+                    '$' + data.estimated_monthly.total;
+                
+                const html = `
+                    <div class="info-row">
+                        <span>Compute:</span>
+                        <span><strong>$${data.estimated_monthly.compute}</strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span>Storage:</span>
+                        <span><strong>$${data.estimated_monthly.storage}</strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span>Data Transfer:</span>
+                        <span><strong>$${data.estimated_monthly.data_transfer}</strong></span>
+                    </div>
+                    <div class="info-row" style="background: rgba(0,0,0,0.05); padding: 12px; border-radius: 8px; margin-top: 10px;">
+                        <span><strong>Total Monthly:</strong></span>
+                        <span><strong>$${data.estimated_monthly.total}</strong></span>
+                    </div>
+                `;
+                document.getElementById('costEstimation').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading costs:', error);
+            }
+        }
+
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return `${days}d ${hours}h ${minutes}m`;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            setInterval(loadData, 10000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GNS3 Network Simulator - SentraOS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .navbar { background: white; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .gns3-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.08);
+        }
+        #topology-canvas {
+            width: 100%;
+            height: 500px;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            background: white;
+        }
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        .stat-box h3 { font-size: 36px; margin: 10px 0; font-weight: 700; }
+        .project-item {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
+            border-left: 4px solid #3b82f6;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .project-item:hover {
+            background: #e5e7eb;
+            transform: translateX(5px);
+        }
+        .project-item.active {
+            background: #dbeafe;
+            border-left-color: #1e40af;
+        }
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-opened { background: #d1fae5; color: #065f46; }
+        .status-closed { background: #e5e7eb; color: #374151; }
+        .status-started { background: #d1fae5; color: #065f46; }
+        .status-stopped { background: #fee2e2; color: #991b1b; }
+        .node-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .node-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 18px;
+            color: white;
+        }
+        .alert-info-custom {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border-left: 4px solid #3b82f6;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .template-item {
+            padding: 10px;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .btn-action {
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-4">
+            <span class="navbar-brand">
+                <i class="fas fa-project-diagram text-primary"></i>
+                <strong>SentraOS</strong> - GNS3 Network Simulator
+            </span>
+            <div>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary btn-sm me-2">
+                    <i class="fas fa-arrow-left"></i> Dashboard
+                </a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 py-4">
+        <!-- Connection Status -->
+        <div id="connectionAlert" class="alert-info-custom mb-4" style="display: none;">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-info-circle fa-2x text-primary me-3"></i>
+                <div>
+                    <h6 class="mb-1" id="connectionTitle">GNS3 Server Status</h6>
+                    <p class="mb-0" id="connectionMessage"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <i class="fas fa-folder-open fa-2x"></i>
+                    <h3 id="totalProjects">0</h3>
+                    <p>Total Projects</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #10b981, #059669);">
+                    <i class="fas fa-play-circle fa-2x"></i>
+                    <h3 id="activeProjects">0</h3>
+                    <p>Active Projects</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                    <i class="fas fa-network-wired fa-2x"></i>
+                    <h3 id="totalNodes">0</h3>
+                    <p>Total Nodes</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                    <i class="fas fa-link fa-2x"></i>
+                    <h3 id="totalLinks">0</h3>
+                    <p>Total Links</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Projects List -->
+            <div class="col-md-3">
+                <div class="gns3-card">
+                    <h5><i class="fas fa-folder text-primary"></i> Projects</h5>
+                    <div id="projectsList"></div>
+                </div>
+
+                <div class="gns3-card">
+                    <h5><i class="fas fa-box text-primary"></i> Templates</h5>
+                    <div id="templatesList" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+            </div>
+
+            <!-- Topology View -->
+            <div class="col-md-6">
+                <div class="gns3-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="fas fa-sitemap text-primary"></i> Network Topology</h5>
+                        <div>
+                            <button class="btn btn-sm btn-success btn-action" onclick="startProject()" id="btnStart">
+                                <i class="fas fa-play"></i> Start All
+                            </button>
+                            <button class="btn btn-sm btn-danger btn-action" onclick="stopProject()" id="btnStop">
+                                <i class="fas fa-stop"></i> Stop All
+                            </button>
+                            <button class="btn btn-sm btn-primary btn-action" onclick="loadData()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div id="topology-canvas"></div>
+                    <div id="topologyInfo" class="mt-3"></div>
+                </div>
+            </div>
+
+            <!-- Nodes and Details -->
+            <div class="col-md-3">
+                <div class="gns3-card">
+                    <h5><i class="fas fa-server text-primary"></i> Nodes</h5>
+                    <div id="nodesList" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+
+                <div class="gns3-card">
+                    <h5><i class="fas fa-info-circle text-primary"></i> Project Details</h5>
+                    <div id="projectDetails"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let network = null;
+        let currentProject = null;
+        let projects = [];
+        let serverConnected = false;
+
+        async function loadData() {
+            await checkServerStatus();
+            await loadStatistics();
+            await loadProjects();
+            await loadTemplates();
+        }
+
+        async function checkServerStatus() {
+            try {
+                const response = await fetch('/api/gns3/status');
+                const status = await response.json();
+                
+                const alert = document.getElementById('connectionAlert');
+                const title = document.getElementById('connectionTitle');
+                const message = document.getElementById('connectionMessage');
+                
+                alert.style.display = 'block';
+                
+                if (status.status === 'connected') {
+                    serverConnected = true;
+                    title.textContent = '✅ GNS3 Server Connected';
+                    message.textContent = `Connected to ${status.server_url} (Version: ${status.version})`;
+                    alert.className = 'alert-info-custom mb-4';
+                    alert.style.background = 'linear-gradient(135deg, #d1fae5, #a7f3d0)';
+                } else {
+                    serverConnected = false;
+                    title.textContent = '⚠️ GNS3 Server Not Connected';
+                    message.textContent = status.message || 'GNS3 server is not running. Showing simulated data from fallback mode. Install and start GNS3 server for real network simulations.';
+                    alert.className = 'alert-info-custom mb-4';
+                }
+            } catch (error) {
+                console.error('Error checking status:', error);
+            }
+        }
+
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/gns3/statistics');
+                const stats = await response.json();
+                
+                document.getElementById('totalProjects').textContent = stats.total_projects;
+                document.getElementById('activeProjects').textContent = stats.active_projects;
+                document.getElementById('totalNodes').textContent = stats.total_nodes;
+                document.getElementById('totalLinks').textContent = stats.total_links;
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+            }
+        }
+
+        async function loadProjects() {
+            try {
+                const response = await fetch('/api/gns3/projects');
+                projects = await response.json();
+                
+                const container = document.getElementById('projectsList');
+                
+                if (projects.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center small">No projects found</p>';
+                    return;
+                }
+                
+                container.innerHTML = projects.map(p => `
+                    <div class="project-item ${p.project_id === currentProject ? 'active' : ''}" 
+                         onclick="selectProject('${p.project_id}')">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <strong>${p.name}</strong>
+                            <span class="status-badge status-${p.status}">${p.status}</span>
+                        </div>
+                        <small class="text-muted">${p.filename || ''}</small>
+                    </div>
+                `).join('');
+                
+                // Auto-select first opened project
+                const openedProject = projects.find(p => p.status === 'opened');
+                if (openedProject && !currentProject) {
+                    selectProject(openedProject.project_id);
+                }
+            } catch (error) {
+                console.error('Error loading projects:', error);
+            }
+        }
+
+        async function selectProject(projectId) {
+            currentProject = projectId;
+            await loadProjectTopology(projectId);
+            await loadProjectDetails(projectId);
+            await loadProjects(); // Refresh to update active state
+        }
+
+        async function loadProjectTopology(projectId) {
+            try {
+                const [nodesRes, linksRes] = await Promise.all([
+                    fetch(`/api/gns3/projects/${projectId}/nodes`),
+                    fetch(`/api/gns3/projects/${projectId}/links`)
+                ]);
+                
+                const nodes = await nodesRes.json();
+                const links = await linksRes.json();
+                
+                displayTopology(nodes, links);
+                displayNodes(nodes);
+                displayTopologyInfo(nodes, links);
+            } catch (error) {
+                console.error('Error loading topology:', error);
+            }
+        }
+
+        function displayTopology(nodes, links) {
+            const visNodes = nodes.map(node => {
+                let color, shape, icon;
+                const nodeType = node.node_type;
+                
+                if (nodeType === 'dynamips' || nodeType === 'qemu') {
+                    color = '#3b82f6';
+                    shape = 'box';
+                } else if (nodeType === 'ethernet_switch' || nodeType === 'ethernet_hub') {
+                    color = '#10b981';
+                    shape = 'box';
+                } else if (nodeType === 'vpcs') {
+                    color = '#f59e0b';
+                    shape = 'box';
+                } else {
+                    color = '#8b5cf6';
+                    shape = 'box';
+                }
+                
+                const borderColor = node.status === 'started' ? '#10b981' : '#ef4444';
+                
+                return {
+                    id: node.node_id,
+                    label: node.name,
+                    shape: shape,
+                    color: {
+                        background: color,
+                        border: borderColor,
+                        highlight: { background: color, border: '#1e293b' }
+                    },
+                    borderWidth: 3,
+                    font: { color: 'white', size: 12 },
+                    title: `${node.name}\nType: ${node.node_type}\nStatus: ${node.status}`,
+                    x: node.x,
+                    y: node.y
+                };
+            });
+
+            const visEdges = links.map(link => ({
+                from: link.nodes[0].node_id,
+                to: link.nodes[1].node_id,
+                color: { color: link.capturing ? '#ef4444' : '#94a3b8' },
+                width: link.capturing ? 3 : 2,
+                dashes: link.suspend,
+                smooth: { type: 'continuous' }
+            }));
+
+            const container = document.getElementById('topology-canvas');
+            const data = { nodes: visNodes, edges: visEdges };
+            const options = {
+                physics: {
+                    enabled: false
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200,
+                    dragNodes: true,
+                    dragView: true,
+                    zoomView: true
+                }
+            };
+
+            network = new vis.Network(container, data, options);
+        }
+
+        function displayNodes(nodes) {
+            const container = document.getElementById('nodesList');
+            
+            if (nodes.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center small">No nodes</p>';
+                return;
+            }
+            
+            container.innerHTML = nodes.map(node => {
+                let iconColor;
+                const nodeType = node.node_type;
+                
+                if (nodeType === 'dynamips' || nodeType === 'qemu') {
+                    iconColor = '#3b82f6';
+                } else if (nodeType === 'ethernet_switch' || nodeType === 'ethernet_hub') {
+                    iconColor = '#10b981';
+                } else if (nodeType === 'vpcs') {
+                    iconColor = '#f59e0b';
+                } else {
+                    iconColor = '#8b5cf6';
+                }
+                
+                return `
+                    <div class="node-item">
+                        <div class="node-icon" style="background: ${iconColor}">
+                            <i class="fas fa-${nodeType === 'vpcs' ? 'desktop' : nodeType.includes('switch') ? 'network-wired' : 'server'}"></i>
+                        </div>
+                        <div style="flex: 1;">
+                            <strong>${node.name}</strong>
+                            <div class="text-muted small">${node.node_type}</div>
+                        </div>
+                        <span class="status-badge status-${node.status}">${node.status}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function displayTopologyInfo(nodes, links) {
+            const runningNodes = nodes.filter(n => n.status === 'started').length;
+            const html = `
+                <div class="d-flex justify-content-around text-center">
+                    <div>
+                        <strong>${nodes.length}</strong>
+                        <div class="text-muted small">Total Nodes</div>
+                    </div>
+                    <div>
+                        <strong>${runningNodes}</strong>
+                        <div class="text-muted small">Running</div>
+                    </div>
+                    <div>
+                        <strong>${links.length}</strong>
+                        <div class="text-muted small">Links</div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('topologyInfo').innerHTML = html;
+        }
+
+        async function loadProjectDetails(projectId) {
+            try {
+                const response = await fetch(`/api/gns3/projects/${projectId}`);
+                const details = await response.json();
+                
+                const html = `
+                    <div style="font-size: 14px;">
+                        <div class="mb-2">
+                            <strong>Name:</strong><br>
+                            ${details.name}
+                        </div>
+                        <div class="mb-2">
+                            <strong>Status:</strong><br>
+                            <span class="status-badge status-${details.status}">${details.status}</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Path:</strong><br>
+                            <code style="font-size: 11px;">${details.path}</code>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Scene Size:</strong><br>
+                            ${details.scene_width} x ${details.scene_height}
+                        </div>
+                    </div>
+                `;
+                document.getElementById('projectDetails').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading project details:', error);
+            }
+        }
+
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/gns3/templates');
+                const templates = await response.json();
+                
+                const container = document.getElementById('templatesList');
+                
+                if (templates.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center small">No templates</p>';
+                    return;
+                }
+                
+                container.innerHTML = templates.map(t => `
+                    <div class="template-item">
+                        <strong>${t.name}</strong>
+                        <div class="text-muted small">
+                            <span class="badge bg-secondary">${t.category}</span>
+                            <span class="badge bg-info">${t.template_type}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading templates:', error);
+            }
+        }
+
+        async function startProject() {
+            if (!currentProject) {
+                alert('Please select a project first');
+                return;
+            }
+            
+            if (!serverConnected) {
+                alert('GNS3 server is not connected. Cannot start nodes.');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/gns3/projects/${currentProject}/start`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('All nodes started successfully!');
+                    await loadProjectTopology(currentProject);
+                } else {
+                    alert('Failed to start nodes: ' + result.message);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function stopProject() {
+            if (!currentProject) {
+                alert('Please select a project first');
+                return;
+            }
+            
+            if (!serverConnected) {
+                alert('GNS3 server is not connected. Cannot stop nodes.');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/gns3/projects/${currentProject}/stop`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('All nodes stopped successfully!');
+                    await loadProjectTopology(currentProject);
+                } else {
+                    alert('Failed to stop nodes: ' + result.message);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            setInterval(() => {
+                if (currentProject) {
+                    loadProjectTopology(currentProject);
+                }
+                loadStatistics();
+            }, 10000);
+        });
+    </script>
+</body>
+</html>

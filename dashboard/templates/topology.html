@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Topology - SentraOS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .navbar { background: white; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        #network-canvas { 
+            width: 100%; 
+            height: 600px; 
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            background: white;
+        }
+        .info-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.1);
+        }
+        .device-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            margin-right: 15px;
+        }
+        .router-icon { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .switch-icon { background: linear-gradient(135deg, #10b981, #059669); }
+        .pc-icon { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .stat-box {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-box h3 { font-size: 32px; margin: 10px 0; }
+        .test-result {
+            background: #f0fdf4;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        .test-result.error {
+            background: #fef2f2;
+            border-left-color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-4">
+            <span class="navbar-brand">
+                <i class="fas fa-project-diagram text-primary"></i>
+                <strong>SentraOS</strong> - Network Topology
+            </span>
+            <div>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary btn-sm me-2">
+                    <i class="fas fa-arrow-left"></i> Dashboard
+                </a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 py-4">
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <i class="fas fa-network-wired fa-2x"></i>
+                    <h3 id="totalDevices">0</h3>
+                    <p>Total Devices</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                    <i class="fas fa-server fa-2x"></i>
+                    <h3 id="routerCount">0</h3>
+                    <p>Routers</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #10b981, #059669);">
+                    <i class="fas fa-ethernet fa-2x"></i>
+                    <h3 id="switchCount">0</h3>
+                    <p>Switches</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                    <i class="fas fa-desktop fa-2x"></i>
+                    <h3 id="pcCount">0</h3>
+                    <p>Computers</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="info-card">
+                    <h5><i class="fas fa-sitemap text-primary"></i> Network Topology Visualization</h5>
+                    <div id="network-canvas"></div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="info-card">
+                    <h5><i class="fas fa-info-circle text-primary"></i> Device Details</h5>
+                    <div id="deviceInfo">
+                        <p class="text-muted text-center">Click on a device to view details</p>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <h5><i class="fas fa-vial text-primary"></i> Network Tests</h5>
+                    <div class="mb-3">
+                        <label class="form-label">Source Device</label>
+                        <select class="form-select" id="sourceDevice"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Destination Device</label>
+                        <select class="form-select" id="destDevice"></select>
+                    </div>
+                    <button class="btn btn-primary w-100 mb-2" onclick="performPing()">
+                        <i class="fas fa-broadcast-tower"></i> Ping Test
+                    </button>
+                    <button class="btn btn-secondary w-100" onclick="performTraceroute()">
+                        <i class="fas fa-route"></i> Traceroute
+                    </button>
+                    <div id="testResults"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let network = null;
+        let topologyData = null;
+
+        async function loadTopology() {
+            try {
+                const response = await fetch('/api/topology/devices');
+                topologyData = await response.json();
+                
+                updateStatistics();
+                drawNetwork();
+                populateDeviceSelects();
+            } catch (error) {
+                console.error('Error loading topology:', error);
+            }
+        }
+
+        function updateStatistics() {
+            const stats = topologyData.statistics;
+            document.getElementById('totalDevices').textContent = stats.total_devices;
+            document.getElementById('routerCount').textContent = stats.routers;
+            document.getElementById('switchCount').textContent = stats.switches;
+            document.getElementById('pcCount').textContent = stats.pcs;
+        }
+
+        function drawNetwork() {
+            const nodes = topologyData.devices.map(device => {
+                let color, shape, icon;
+                if (device.type === 'router') {
+                    color = '#3b82f6';
+                    shape = 'box';
+                    icon = '\uf233';
+                } else if (device.type === 'switch') {
+                    color = '#10b981';
+                    shape = 'box';
+                    icon = '\uf6ff';
+                } else {
+                    color = '#f59e0b';
+                    shape = 'box';
+                    icon = '\uf108';
+                }
+
+                return {
+                    id: device.id,
+                    label: device.name + '\n' + device.ip,
+                    shape: shape,
+                    color: {
+                        background: color,
+                        border: color,
+                        highlight: { background: color, border: '#1e293b' }
+                    },
+                    font: { color: 'white', size: 12 },
+                    title: `${device.name}\nType: ${device.type}\nIP: ${device.ip}\nMAC: ${device.mac}`
+                };
+            });
+
+            const edges = topologyData.connections.map(conn => ({
+                from: conn.from,
+                to: conn.to,
+                label: conn.bandwidth,
+                color: { color: '#94a3b8' },
+                width: 2,
+                smooth: { type: 'continuous' }
+            }));
+
+            const container = document.getElementById('network-canvas');
+            const data = { nodes: nodes, edges: edges };
+            const options = {
+                physics: {
+                    enabled: true,
+                    stabilization: { iterations: 100 }
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 200
+                }
+            };
+
+            network = new vis.Network(container, data, options);
+
+            network.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const deviceId = params.nodes[0];
+                    showDeviceDetails(deviceId);
+                }
+            });
+        }
+
+        function showDeviceDetails(deviceId) {
+            const device = topologyData.devices.find(d => d.id === deviceId);
+            if (!device) return;
+
+            let iconClass, iconColor;
+            if (device.type === 'router') {
+                iconClass = 'fa-server';
+                iconColor = 'router-icon';
+            } else if (device.type === 'switch') {
+                iconClass = 'fa-ethernet';
+                iconColor = 'switch-icon';
+            } else {
+                iconClass = 'fa-desktop';
+                iconColor = 'pc-icon';
+            }
+
+            const html = `
+                <div class="d-flex align-items-center mb-3">
+                    <div class="device-icon ${iconColor}">
+                        <i class="fas ${iconClass}"></i>
+                    </div>
+                    <div>
+                        <h6 class="mb-0">${device.name}</h6>
+                        <small class="text-muted">${device.type.toUpperCase()}</small>
+                    </div>
+                </div>
+                <table class="table table-sm">
+                    <tr><th>IP Address:</th><td>${device.ip}</td></tr>
+                    <tr><th>Netmask:</th><td>${device.netmask}</td></tr>
+                    <tr><th>MAC Address:</th><td><code>${device.mac}</code></td></tr>
+                    <tr><th>Status:</th><td><span class="badge bg-success">${device.status}</span></td></tr>
+                    <tr><th>Interfaces:</th><td>${device.interfaces.length}</td></tr>
+                </table>
+                <button class="btn btn-sm btn-primary w-100" onclick="showRoutingTable(${device.id})">
+                    <i class="fas fa-table"></i> Routing Table
+                </button>
+            `;
+
+            document.getElementById('deviceInfo').innerHTML = html;
+        }
+
+        async function showRoutingTable(deviceId) {
+            try {
+                const response = await fetch(`/api/topology/routing/${deviceId}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                let html = `<h6 class="mt-3">Routing Table - ${data.device}</h6>`;
+                html += '<div class="table-responsive" style="max-height: 200px; overflow-y: auto;">';
+                html += '<table class="table table-sm table-striped">';
+                html += '<thead><tr><th>Destination</th><th>Gateway</th><th>Interface</th></tr></thead><tbody>';
+                
+                data.routes.forEach(route => {
+                    html += `<tr>
+                        <td><code>${route.destination}</code></td>
+                        <td><code>${route.gateway}</code></td>
+                        <td>${route.interface}</td>
+                    </tr>`;
+                });
+                
+                html += '</tbody></table></div>';
+                document.getElementById('deviceInfo').innerHTML += html;
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function populateDeviceSelects() {
+            const sourceSelect = document.getElementById('sourceDevice');
+            const destSelect = document.getElementById('destDevice');
+            
+            sourceSelect.innerHTML = '<option value="">Select source...</option>';
+            destSelect.innerHTML = '<option value="">Select destination...</option>';
+            
+            topologyData.devices.forEach(device => {
+                const option = `<option value="${device.id}">${device.name} (${device.ip})</option>`;
+                sourceSelect.innerHTML += option;
+                destSelect.innerHTML += option;
+            });
+        }
+
+        async function performPing() {
+            const sourceId = document.getElementById('sourceDevice').value;
+            const destId = document.getElementById('destDevice').value;
+
+            if (!sourceId || !destId) {
+                alert('Please select both source and destination devices');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/topology/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source_id: parseInt(sourceId), dest_id: parseInt(destId) })
+                });
+
+                const result = await response.json();
+                displayTestResult(result, 'ping');
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        async function performTraceroute() {
+            const sourceId = document.getElementById('sourceDevice').value;
+            const destId = document.getElementById('destDevice').value;
+
+            if (!sourceId || !destId) {
+                alert('Please select both source and destination devices');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/topology/traceroute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source_id: parseInt(sourceId), dest_id: parseInt(destId) })
+                });
+
+                const result = await response.json();
+                displayTestResult(result, 'traceroute');
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function displayTestResult(result, type) {
+            let html = '';
+            
+            if (result.success) {
+                html = `<div class="test-result">
+                    <h6><i class="fas fa-check-circle text-success"></i> ${type === 'ping' ? 'Ping' : 'Traceroute'} Successful</h6>
+                    <p class="mb-1"><strong>Source:</strong> ${result.source}</p>
+                    <p class="mb-1"><strong>Destination:</strong> ${result.destination}</p>`;
+                
+                if (type === 'ping') {
+                    html += `<p class="mb-1"><strong>Latency:</strong> ${result.latency}</p>
+                             <p class="mb-0"><strong>Hops:</strong> ${result.hops}</p>`;
+                } else {
+                    html += `<p class="mb-1"><strong>Total Hops:</strong> ${result.total_hops}</p>`;
+                    html += '<div class="mt-2"><strong>Path:</strong><ol class="mb-0">';
+                    result.hops.forEach(hop => {
+                        html += `<li>${hop.name} (${hop.ip}) - ${hop.latency}</li>`;
+                    });
+                    html += '</ol></div>';
+                }
+                
+                html += '</div>';
+            } else {
+                html = `<div class="test-result error">
+                    <h6><i class="fas fa-times-circle text-danger"></i> Test Failed</h6>
+                    <p class="mb-0">${result.error}</p>
+                </div>`;
+            }
+            
+            document.getElementById('testResults').innerHTML = html;
+        }
+
+        document.addEventListener('DOMContentLoaded', loadTopology);
+    </script>
+</body>
+</html>

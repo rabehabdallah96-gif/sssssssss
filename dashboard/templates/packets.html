@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Analyzer - SentraOS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .packet-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.1);
+        }
+        
+        .capture-status {
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        
+        .capture-status.active {
+            background: linear-gradient(135deg, #10b981, #34d399);
+            color: white;
+            animation: pulse 2s infinite;
+        }
+        
+        .capture-status.stopped {
+            background: #e5e7eb;
+            color: #6b7280;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .protocol-badge {
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+            margin: 3px;
+        }
+        
+        .protocol-tcp { background: #dbeafe; color: #1e40af; }
+        .protocol-udp { background: #fef3c7; color: #92400e; }
+        .protocol-icmp { background: #fee2e2; color: #991b1b; }
+        .protocol-arp { background: #f3e8ff; color: #6b21a8; }
+        .protocol-dns { background: #d1fae5; color: #065f46; }
+        
+        .packet-row {
+            padding: 12px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .packet-row:hover {
+            background: #f9fafb;
+        }
+        
+        .suspicious-alert {
+            background: linear-gradient(135deg, #fef2f2, #fee2e2);
+            border-left: 4px solid #dc2626;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+        
+        .stat-box {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        
+        .stat-box h3 {
+            font-size: 32px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .stat-box p {
+            margin: 0;
+            opacity: 0.9;
+        }
+        
+        .scroll-table {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div class="container-fluid px-4">
+            <span class="navbar-brand">
+                <i class="fas fa-network-wired text-primary"></i>
+                <strong>SentraOS</strong> - Packet Analyzer
+            </span>
+            <div class="d-flex align-items-center">
+                <span class="me-3">👤 {{ user.username }}</span>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary btn-sm me-2">
+                    <i class="fas fa-arrow-left"></i> Dashboard
+                </a>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 py-4">
+        
+        <!-- Control Panel -->
+        <div class="packet-card">
+            <div class="row align-items-center">
+                <div class="col-md-4">
+                    <h4><i class="fas fa-satellite-dish text-primary"></i> Capture Control</h4>
+                    <p class="text-muted mb-0">Network packet capture and analysis</p>
+                </div>
+                <div class="col-md-4 text-center">
+                    <div class="capture-status" id="captureStatus">
+                        <i class="fas fa-circle"></i> Stopped
+                    </div>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-success" id="startCapture" onclick="startCapture()">
+                        <i class="fas fa-play"></i> Start Capture
+                    </button>
+                    <button class="btn btn-danger" id="stopCapture" onclick="stopCapture()" disabled>
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Capture Settings -->
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <label class="form-label">Interface (leave empty for all)</label>
+                    <input type="text" class="form-control" id="interface" placeholder="eth0, wlan0, etc.">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Timeout (seconds)</label>
+                    <input type="number" class="form-control" id="timeout" value="60">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Packet Count (0=unlimited)</label>
+                    <input type="number" class="form-control" id="packetCount" value="0">
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="row mt-4">
+            <div class="col-md-3">
+                <div class="stat-box" style="--primary: #3b82f6; --accent: #60a5fa;">
+                    <i class="fas fa-chart-line fa-2x"></i>
+                    <h3 id="totalPackets">0</h3>
+                    <p>Total Packets</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="--primary: #10b981; --accent: #34d399;">
+                    <i class="fas fa-database fa-2x"></i>
+                    <h3 id="totalBytes">0 KB</h3>
+                    <p>Total Data</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="--primary: #f59e0b; --accent: #fbbf24;">
+                    <i class="fas fa-layer-group fa-2x"></i>
+                    <h3 id="protocolCount">0</h3>
+                    <p>Protocols</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box" style="--primary: #ef4444; --accent: #f87171;">
+                    <i class="fas fa-exclamation-triangle fa-2x"></i>
+                    <h3 id="suspiciousCount">0</h3>
+                    <p>Suspicious Activities</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Protocol Distribution & Top Talkers -->
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="packet-card">
+                    <h5><i class="fas fa-pie-chart text-primary"></i> Protocol Distribution</h5>
+                    <div class="chart-container">
+                        <canvas id="protocolChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="packet-card">
+                    <h5><i class="fas fa-fire text-danger"></i> Top Talkers</h5>
+                    <div class="scroll-table" id="topTalkersContainer">
+                        <p class="text-muted text-center">No data available</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Suspicious Activities -->
+        <div class="packet-card mt-4">
+            <h5><i class="fas fa-shield-alt text-danger"></i> Suspicious Activities</h5>
+            <div id="suspiciousContainer">
+                <p class="text-muted text-center">No suspicious activities detected</p>
+            </div>
+        </div>
+
+        <!-- Recent Packets -->
+        <div class="packet-card mt-4">
+            <h5><i class="fas fa-stream text-primary"></i> Recent Packets (Last 50)</h5>
+            <div class="scroll-table">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Protocol</th>
+                            <th>Source IP</th>
+                            <th>Destination IP</th>
+                            <th>Src Port</th>
+                            <th>Dst Port</th>
+                            <th>Length</th>
+                            <th>Info</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packetsTable">
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">No packets captured yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        let protocolChart = null;
+        let updateInterval = null;
+
+        // Initialize Protocol Chart
+        function initChart() {
+            const ctx = document.getElementById('protocolChart').getContext('2d');
+            protocolChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['TCP', 'UDP', 'ICMP', 'ARP', 'DNS', 'Other'],
+                    datasets: [{
+                        data: [0, 0, 0, 0, 0, 0],
+                        backgroundColor: [
+                            '#3b82f6',
+                            '#f59e0b',
+                            '#ef4444',
+                            '#8b5cf6',
+                            '#10b981',
+                            '#6b7280'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Start Capture
+        async function startCapture() {
+            const data = {
+                interface: document.getElementById('interface').value || null,
+                timeout: parseInt(document.getElementById('timeout').value),
+                packet_count: parseInt(document.getElementById('packetCount').value)
+            };
+
+            try {
+                const response = await fetch('/api/packets/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('startCapture').disabled = true;
+                    document.getElementById('stopCapture').disabled = false;
+                    updateCaptureStatus(true);
+                    
+                    // Start periodic updates
+                    updateInterval = setInterval(updateData, 2000);
+                    
+                    alert('Packet capture started successfully!');
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to start capture'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Stop Capture
+        async function stopCapture() {
+            try {
+                const response = await fetch('/api/packets/stop', {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('startCapture').disabled = false;
+                    document.getElementById('stopCapture').disabled = true;
+                    updateCaptureStatus(false);
+                    
+                    // Stop periodic updates
+                    if (updateInterval) {
+                        clearInterval(updateInterval);
+                    }
+                    
+                    alert('Packet capture stopped!');
+                    updateData(); // Final update
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Update Capture Status
+        function updateCaptureStatus(isActive) {
+            const statusEl = document.getElementById('captureStatus');
+            if (isActive) {
+                statusEl.className = 'capture-status active';
+                statusEl.innerHTML = '<i class="fas fa-circle"></i> Capturing';
+            } else {
+                statusEl.className = 'capture-status stopped';
+                statusEl.innerHTML = '<i class="fas fa-circle"></i> Stopped';
+            }
+        }
+
+        // Update All Data
+        async function updateData() {
+            await updateStatistics();
+            await updateProtocolChart();
+            await updateTopTalkers();
+            await updateSuspicious();
+            await updatePacketsTable();
+        }
+
+        // Update Statistics
+        async function updateStatistics() {
+            try {
+                const response = await fetch('/api/packets/status');
+                const stats = await response.json();
+                
+                document.getElementById('totalPackets').textContent = stats.total_packets.toLocaleString();
+                document.getElementById('totalBytes').textContent = (stats.total_bytes / 1024).toFixed(2) + ' KB';
+                
+                const protocolCount = (stats.tcp_packets > 0 ? 1 : 0) + 
+                                     (stats.udp_packets > 0 ? 1 : 0) + 
+                                     (stats.icmp_packets > 0 ? 1 : 0) + 
+                                     (stats.arp_packets > 0 ? 1 : 0) + 
+                                     (stats.dns_packets > 0 ? 1 : 0);
+                document.getElementById('protocolCount').textContent = protocolCount;
+                
+                updateCaptureStatus(stats.is_capturing);
+            } catch (error) {
+                console.error('Error updating statistics:', error);
+            }
+        }
+
+        // Update Protocol Chart
+        async function updateProtocolChart() {
+            try {
+                const response = await fetch('/api/packets/protocols');
+                const protocols = await response.json();
+                
+                if (protocolChart) {
+                    protocolChart.data.datasets[0].data = [
+                        protocols.TCP || 0,
+                        protocols.UDP || 0,
+                        protocols.ICMP || 0,
+                        protocols.ARP || 0,
+                        protocols.DNS || 0,
+                        protocols.Other || 0
+                    ];
+                    protocolChart.update();
+                }
+            } catch (error) {
+                console.error('Error updating protocol chart:', error);
+            }
+        }
+
+        // Update Top Talkers
+        async function updateTopTalkers() {
+            try {
+                const response = await fetch('/api/packets/top-talkers?limit=10');
+                const talkers = await response.json();
+                
+                const container = document.getElementById('topTalkersContainer');
+                
+                if (talkers.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center">No data available</p>';
+                    return;
+                }
+                
+                container.innerHTML = talkers.map((t, i) => `
+                    <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+                        <span><strong>#${i+1}</strong> ${t.ip}</span>
+                        <span class="badge bg-primary">${t.packets} packets</span>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error updating top talkers:', error);
+            }
+        }
+
+        // Update Suspicious Activities
+        async function updateSuspicious() {
+            try {
+                const response = await fetch('/api/packets/suspicious');
+                const suspicious = await response.json();
+                
+                document.getElementById('suspiciousCount').textContent = suspicious.length;
+                
+                const container = document.getElementById('suspiciousContainer');
+                
+                if (suspicious.length === 0) {
+                    container.innerHTML = '<p class="text-muted text-center">No suspicious activities detected</p>';
+                    return;
+                }
+                
+                container.innerHTML = suspicious.map(s => `
+                    <div class="suspicious-alert">
+                        <div class="d-flex justify-content-between">
+                            <strong><i class="fas fa-exclamation-circle"></i> ${s.type}</strong>
+                            <span class="badge bg-danger">${s.severity.toUpperCase()}</span>
+                        </div>
+                        <p class="mb-0 mt-2">${s.description}</p>
+                        ${s.source_ip ? `<small class="text-muted">Source: ${s.source_ip}</small>` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error updating suspicious activities:', error);
+            }
+        }
+
+        // Update Packets Table
+        async function updatePacketsTable() {
+            try {
+                const response = await fetch('/api/packets/recent?limit=50');
+                const packets = await response.json();
+                
+                const tbody = document.getElementById('packetsTable');
+                
+                if (packets.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No packets captured yet</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = packets.map(p => `
+                    <tr class="packet-row">
+                        <td>${new Date(p.timestamp).toLocaleTimeString()}</td>
+                        <td><span class="protocol-badge protocol-${p.protocol.toLowerCase()}">${p.protocol}</span></td>
+                        <td><code>${p.src_ip || 'N/A'}</code></td>
+                        <td><code>${p.dst_ip || 'N/A'}</code></td>
+                        <td>${p.src_port || '-'}</td>
+                        <td>${p.dst_port || '-'}</td>
+                        <td>${p.length} bytes</td>
+                        <td><small>${p.info}</small></td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error updating packets table:', error);
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            updateData();
+            
+            // Update every 3 seconds if not capturing
+            setInterval(() => {
+                if (!document.getElementById('stopCapture').disabled) {
+                    // Only update if capturing
+                } else {
+                    updateStatistics();
+                }
+            }, 3000);
+        });
+    </script>
+</body>
+</html>
